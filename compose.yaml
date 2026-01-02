@@ -1,0 +1,7 @@
+services:
+  edge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    container_name: barnsight-edge
