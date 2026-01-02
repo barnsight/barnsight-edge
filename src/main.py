@@ -1,17 +1,12 @@
-from core.camera import Camera
-from core.logger import logger
-from dotenv import load_dotenv
+from core.stream_handler import SteamHandler
 import time
 import cv2
-import os
 
-load_dotenv()
-
-WIDTH, HEIGHT = os.getenv("WIDTH"), os.getenv("HEIGHT")
-FRAME_TIMEOUT = os.getenv("FRAME_TIMEOUT")
+from config import settings
+from core.logger import logger
 
 if __name__ == "__main__":
-  camera = Camera(os.getenv("RTSP_URL"), width=WIDTH, height=HEIGHT)
+  camera = SteamHandler(settings.STREAM_URL, width=settings.FRAME_WIDTH, height=settings.FRAME_HEIGHT)
   camera.start()
 
   start_time = time.time()
@@ -23,7 +18,7 @@ if __name__ == "__main__":
     while True:
       ret, frame = camera.read()
       if not ret:
-        if time.time() - last_frame_time > FRAME_TIMEOUT:
+        if time.time() - last_frame_time > settings.FRAME_TIMEOUT:
           logger.error("No frames received for too long — stream likely dead")
           break
         time.sleep(0.05)
@@ -31,7 +26,7 @@ if __name__ == "__main__":
 
       last_frame_time = time.time()
 
-      cv2.imshow("Camera", cv2.resize(frame, (WIDTH, HEIGHT)))
+      cv2.imshow("Camera", cv2.resize(frame, (settings.FRAME_WIDTH, settings.FRAME_HEIGHT)))
       if cv2.waitKey(1) & 0xFF == ord('q'):
         break
       
