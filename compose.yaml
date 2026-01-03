@@ -4,4 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     env_file: .env
+    image: barnsight-edge:latest
     container_name: barnsight-edge
+    restart: unless-stopped
