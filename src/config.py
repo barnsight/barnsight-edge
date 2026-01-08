@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     
   STREAM_URL: Union[str, int] = 0
   
-  FRAME_WIDTH: int = 1280
-  FRAME_HEIGHT: int = 720
+  FRAME_WIDTH: int = 640
+  FRAME_HEIGHT: int = 640
 
   FRAME_TIMEOUT: int = 60
 
