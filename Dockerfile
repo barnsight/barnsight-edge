@@ -3,51 +3,59 @@ FROM python:3.12-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_BREAK_SYSTEM_PACKAGES=1
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
-# Install linux packages
+# Install system dependencies for OpenCV and edge device operations
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    python3-pip git zip unzip wget curl htop libgl1 libglib2.0-0 && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+        git \
+        wget \
+        curl \
+        htop \
+        libgl1-mesa-glx \
+        libglib2.0-0 \
+        libsm6 \
+        libxext6 \
+        libxrender-dev \
+        libgomp1 \
+        libgstreamer1.0-0 \
+        libavcodec-extra \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-ENV UV_COMPILE_BYTE=1 \
-    UV_LINK_MODE=copy
-
-# Work directory
 WORKDIR /edge
 
+# Copy dependency files
 COPY pyproject.toml uv.lock ./
 
-# Install Python dependencies
+# Install dependencies (single step, more efficient)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
-
-# Install PyTorch CPU version (smaller, faster for edge devices without GPU)
-RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev && \
     uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
+# Copy application code and models
 COPY src/ ./src/
-COPY models/ ./models/
+# COPY models/ ./models/
 
-# Set PATH to include UV virtual environment
+# Create non-root user for security
+RUN groupadd -r edge && \
+    useradd -r -g edge -u 1000 edge && \
+    chown -R edge:edge /edge
+
+# Switch to non-root user
+USER edge
+
+# Set PATH to use UV's virtual environment
 ENV PATH="/edge/.venv/bin:$PATH"
 
-# Install dependencies
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --frozen --no-install-project --no-dev
-
-# Sync the project
-RUN --mount=type=cache,target=/root/.cache/uv \
-  uv pip install --system -e . --extra-index-url https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match && \
-  uv sync --frozen --no-dev
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD python -c "import sys; sys.exit(0)" || exit 1
 
 EXPOSE 8000
 
-CMD ["uv", "run", "src/main.py"]
+CMD ["python", "src/main.py"]

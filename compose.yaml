@@ -3,7 +3,73 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    env_file: .env
     image: barnsight-edge:latest
     container_name: barnsight-edge
     restart: unless-stopped
+    
+    env_file: .env
+    
+    # Resource limits for edge device
+    deploy:
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 3G
+        reservations:
+          cpus: '1.5'
+          memory: 1.5G
+    
+    # Additional environment variables
+    environment:
+      - OMP_NUM_THREADS=4  # OpenMP threads for CPU optimization
+      - OPENBLAS_NUM_THREADS=4
+      - MKL_NUM_THREADS=4
+      - TORCH_NUM_THREADS=4
+    
+    # Volume mounts
+    volumes:
+      # Persistent data storage
+      - edge-data:/edge/data
+      # Model updates without rebuilding
+      - ./models:/edge/models:ro
+      # Config files
+      - ./config:/edge/config:ro
+      # Logs persistence
+      - ./logs:/edge/logs
+    
+    # Camera/hardware access (adjust based on your setup)
+    devices:
+      - /dev/video0:/dev/video0  # USB camera
+      # - /dev/vchiq:/dev/vchiq  # Raspberry Pi camera
+    
+    # Privileged mode if needed for hardware access (use cautiously)
+    # privileged: true
+    
+    # Network configuration
+    network_mode: bridge
+    ports:
+      - "8000:8000"
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    
+    # Health check override
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    
+    # Dependencies (if you add other services like Redis)
+    # depends_on:
+    #   - redis
+
+volumes:
+  edge-data:
+    driver: local
