@@ -3,13 +3,22 @@ name = "barnsight-edge"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<3.12"
 dependencies = [
     "dotenv",
+    "fastapi>=0.128.0",
     "httpx>=0.28.1",
     "lap>=0.5.12",
     "pydantic-settings>=2.12.0",
     "torch",
     "torchvision",
     "ultralytics>=8.3.246",
+    "uvicorn>=0.40.0",
+    "fastrtc<=0.0.34",
 ]
+
+[tool.uv]
+environments = [
+  "sys_platform == 'linux'",
+]
+

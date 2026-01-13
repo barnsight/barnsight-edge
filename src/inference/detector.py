@@ -1,5 +1,4 @@
-from typing import List, Literal, Dict
-from collections import defaultdict
+from typing import List, Literal
 import numpy as np
 import torch
 import cv2
@@ -8,7 +7,7 @@ import os
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-from core.logger import logger
+from src.core.logger import logger
 
 class Detector:
   def __init__(

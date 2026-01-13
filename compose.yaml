@@ -19,23 +19,23 @@ services:
           cpus: '1.5'
           memory: 1.5G
     
-    # Additional environment variables
-    environment:
-      - OMP_NUM_THREADS=4  # OpenMP threads for CPU optimization
-      - OPENBLAS_NUM_THREADS=4
-      - MKL_NUM_THREADS=4
-      - TORCH_NUM_THREADS=4
+    # # Additional environment variables
+    # environment:
+    #   - OMP_NUM_THREADS=4  # OpenMP threads for CPU optimization
+    #   - OPENBLAS_NUM_THREADS=4
+    #   - MKL_NUM_THREADS=4
+    #   - TORCH_NUM_THREADS=4
     
-    # Volume mounts
-    volumes:
-      # Persistent data storage
-      - edge-data:/edge/data
-      # Model updates without rebuilding
-      - ./models:/edge/models:ro
-      # Config files
-      - ./config:/edge/config:ro
-      # Logs persistence
-      - ./logs:/edge/logs
+    # # Volume mounts
+    # volumes:
+    #   # Persistent data storage
+    #   - edge-data:/edge/data
+    #   # Model updates without rebuilding
+    #   - ./models:/edge/models:ro
+    #   # Config files
+    #   - ./config:/edge/config:ro
+    #   # Logs persistence
+    #   - ./logs:/edge/logs
     
     # Camera/hardware access (adjust based on your setup)
     devices:

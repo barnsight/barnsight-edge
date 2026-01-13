@@ -3,7 +3,7 @@ import threading
 import time
 import cv2
 
-from core.logger import logger
+from src.core.logger import logger
 
 class StreamHandler:
   def __init__(
@@ -43,7 +43,7 @@ class StreamHandler:
   def start(self) -> None:
     """Start the background frame capture thread. """
     if self._is_running:
-      logger.error("[x] Failed connect to the camera.")
+      logger.debug("[*] Camera already running.")
       return
     
     if not self.cap.isOpened():
@@ -118,6 +118,10 @@ class StreamHandler:
       if self._frame is None:
         return False, None
       return self._frame
+
+  @property
+  def is_running(self) -> bool:
+    return self._is_running
       
   def __enter__(self):
     """Context manager support."""
