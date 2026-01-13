@@ -114,7 +114,7 @@ You can either use the helper script:
 or call `uv` directly:
 
 ```bash
-uv run src/main.py
+uv run python -m src.main
 ```
 
 The API and web UI will be available at:
