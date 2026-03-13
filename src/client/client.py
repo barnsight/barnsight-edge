@@ -1,5 +1,5 @@
 from httpx import AsyncClient, Timeout, Limits, HTTPStatusError
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Union
 from uuid import UUID
 import datetime
 import asyncio
@@ -10,39 +10,41 @@ class APIClient:
   def __init__(
     self,
     base_url: str,
-    device_id: UUID,
+    device_id: Union[str, UUID],
     timeout: float = 30.0,
     max_retries: int = 3,
     headers: Optional[Dict] = None
   ):
     self.base_url = base_url
-    self.device_id = device_id
+    self.device_id = str(device_id)
     self.timeout = timeout
     self.max_retries = max_retries
     self.headers = headers
 
     if not headers:
       self.headers = {
-        "Content-Type": "application/json",
-        "X-Device-ID": device_id
+        "X-Device-ID": self.device_id
       }
 
     self.__client = AsyncClient(
       timeout=Timeout(timeout),
-      limits=Limits(max_connections=10, max_keepalive_connections=5)
+      limits=Limits(max_connections=10, max_keepalive_connections=5),
+      headers=self.headers
     ) 
 
-    logger.info(f"Initialized API client for device {device_id}")
+    logger.info(f"Initialized API client for device {self.device_id}")
 
   async def request(
     self,
     method: str,
     endpoint: str,
     data: Optional[Dict] = None,
-    params: Optional[Dict] = None
+    params: Optional[Dict] = None,
+    files: Optional[Dict] = None,
+    json: Optional[Dict] = None
   ):
     """Make HTTP request."""
-    url = f"{self.base_url}/{endpoint.lstrip("/")}"
+    url = f"{self.base_url}/{endpoint.lstrip('/')}"
 
     for attempt in range(self.max_retries):
       try:
@@ -50,7 +52,9 @@ class APIClient:
           method=method,
           url=url,
           data=data,
-          params=params
+          params=params,
+          files=files,
+          json=json
         )
         response.raise_for_status()
         return response.json() if response.text else None 
@@ -69,19 +73,32 @@ class APIClient:
   async def send_detection(
     self,
     endpoint: str,
-    detections: List[Dict]
+    detections: List[Dict],
+    image_bytes: Optional[bytes] = None
   ):
-    """Send detection over HTTP request."""
+    """Send detection over HTTP request with optional image data."""
     
-    timestamp = datetime.datetime.now(datetime.timezone.utc)
+    timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
     
+    # We can't send a complex list as form-data easily, so we can send as json if no image,
+    # or as form-data with json string payload if image is present.
     payload = {
-      "timestamp": timestamp
+      "timestamp": timestamp,
+      "device_id": self.device_id,
+      "detections_count": str(len(detections))
     }
+    
+    import json as json_lib
+    payload["detections"] = json_lib.dumps(detections)
 
     try:
-      result = await self.request("POST", endpoint, data=payload)
-      if result:
+      if image_bytes:
+        files = {"image": ("detection.jpg", image_bytes, "image/jpeg")}
+        result = await self.request("POST", endpoint, data=payload, files=files)
+      else:
+        result = await self.request("POST", endpoint, json=payload)
+        
+      if result is not None:
         logger.info(f"Successfully sent {len(detections)} detection(s)")
         return True
       return False

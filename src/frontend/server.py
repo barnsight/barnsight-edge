@@ -1,29 +1,30 @@
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, StreamingResponse
 import cv2
 import os
 import numpy as np
 import time
 import threading
+import asyncio
 from typing import Optional
 
 from src.config import settings
 from src.core.logger import logger
 from src.core.stream_handler import StreamHandler
 from src.inference.detector import Detector
-
-from fastrtc import Stream as FastRTCStream  # FastRTC real-time video
+from src.client.client import APIClient
 
 app = FastAPI()
 
 # Shared state between camera / detector / FastAPI
 camera: Optional[StreamHandler] = None
 detector: Optional[Detector] = None
+api_client: Optional[APIClient] = None
 
 _annotated_frame_lock = threading.Lock()
 _latest_annotated_frame: Optional[np.ndarray] = None
 _inference_thread: Optional[threading.Thread] = None
 _inference_running: bool = False
+_last_push_time: float = 0.0
 
 def _placeholder_frame(message: str = "Waiting for stream...") -> np.ndarray:
     """Generate a placeholder frame with a status message."""
@@ -32,8 +33,8 @@ def _placeholder_frame(message: str = "Waiting for stream...") -> np.ndarray:
     return frame
 
 def _init_components():
-    """Lazy-load camera and detector so the app doesn't crash at import time."""
-    global camera, detector
+    """Lazy-load camera, detector, and api client so the app doesn't crash at import time."""
+    global camera, detector, api_client
 
     if camera is None:
         try:
@@ -55,6 +56,30 @@ def _init_components():
         except Exception as exc:  # pragma: no cover - protects runtime
             logger.error(f"[x] Failed to load detector: {exc}")
             detector = None
+            
+    if api_client is None:
+        try:
+            api_client = APIClient(
+                base_url=settings.WEB_API_URL,
+                device_id=settings.DEVICE_ID
+            )
+            logger.info("[+] API Client initialized")
+        except Exception as exc:
+            logger.error(f"[x] Failed to initialize API client: {exc}")
+            api_client = None
+
+def _push_detection_task(client: APIClient, endpoint: str, detections: list, frame: np.ndarray):
+    """Background task to push detection image."""
+    try:
+        ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        image_bytes = buffer.tobytes() if ok else None
+        
+        async def do_send():
+            await client.send_detection(endpoint, detections, image_bytes)
+            
+        asyncio.run(do_send())
+    except Exception as e:
+        logger.error(f"[x] Failed in push detection task: {e}")
 
 def _inference_loop() -> None:
     """
@@ -62,8 +87,9 @@ def _inference_loop() -> None:
     - Pulls frames from OpenCV (StreamHandler)
     - Runs YOLO detector
     - Stores latest annotated frame for FastAPI to stream
+    - Pushes detections to web API if any
     """
-    global _latest_annotated_frame, _inference_running
+    global _latest_annotated_frame, _inference_running, _last_push_time
 
     logger.info("[*] Inference loop started")
     while _inference_running:
@@ -81,7 +107,20 @@ def _inference_loop() -> None:
             continue
 
         try:
-            annotated = detector.predict(frame)
+            annotated, detections = detector.predict(frame)
+            
+            # Check if we should push detections (filter by 'manure' or similar if needed)
+            # and respect the push interval to avoid spamming the backend
+            if detections and api_client:
+                current_time = time.time()
+                if current_time - _last_push_time >= settings.PUSH_INTERVAL:
+                    _last_push_time = current_time
+                    threading.Thread(
+                        target=_push_detection_task,
+                        args=(api_client, "/detections", detections, annotated),
+                        daemon=True
+                    ).start()
+                    
         except Exception as exc:  # pragma: no cover
             logger.error(f"[x] Detector error: {exc}")
             annotated = _placeholder_frame("Detector error")
@@ -93,33 +132,6 @@ def _inference_loop() -> None:
         time.sleep(0.01)
 
     logger.info("[*] Inference loop stopped")
-
-
-# --- FastRTC integration ----------------------------------------------------
-
-def _fastrtc_handler(frame: np.ndarray) -> np.ndarray:
-    """
-    FastRTC handler for video modality.
-
-    Even though FastRTC will pass us a frame from the browser, our pipeline
-    is server-side (RTSP -> OpenCV -> YOLO). So we ignore the incoming frame
-    and return the latest annotated server-side frame instead.
-    """
-    with _annotated_frame_lock:
-        out = _latest_annotated_frame.copy() if _latest_annotated_frame is not None else None
-
-    if out is None:
-        return _placeholder_frame("Waiting for RTSP...")
-    return out
-
-
-fastrtc_stream = FastRTCStream(
-    handler=_fastrtc_handler,
-    modality="video",
-    mode="send-receive",
-)
-
-fastrtc_stream.mount(app)
 
 @app.on_event("startup")
 async def startup_event():
@@ -148,46 +160,6 @@ async def shutdown_event():
 
     if camera:
         camera.stop()
-
-def generate_frames():
-    """
-    Yield annotated frames for MJPEG streaming.
-    FastAPI just reads pre-processed frames from the background thread,
-    so camera + YOLO keep running independently of HTTP connections.
-    """
-    _init_components()  # Ensure components exist if called before startup
-
-    while True:
-        # Take the most recent annotated frame from the background worker
-        with _annotated_frame_lock:
-            frame = _latest_annotated_frame.copy() if _latest_annotated_frame is not None else None
-
-        if frame is None:
-            frame = _placeholder_frame("Initializing stream...")
-
-        ok, buffer = cv2.imencode(".jpg", frame)
-        if not ok:
-            continue
-
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n"
-        )
-
-        # Small pause to avoid tight looping when stream is unavailable
-        time.sleep(0.02)
-
-@app.get("/video_feed")
-async def video_feed():
-    return StreamingResponse(generate_frames(), media_type="multipart/x-mixed-replace; boundary=frame")
-
-@app.get("/", response_class=HTMLResponse)
-async def get_index():
-    template_path = os.path.join(os.path.dirname(__file__), "web_template.html")
-    if os.path.exists(template_path):
-        with open(template_path, "r") as f:
-            return f.read()
-    return "<h1>Web template not found</h1>"
 
 @app.get("/health")
 async def health():

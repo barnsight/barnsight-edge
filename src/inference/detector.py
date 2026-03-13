@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import List, Literal, Tuple, Dict
 import numpy as np
 import torch
 import cv2
@@ -43,7 +43,7 @@ class Detector:
     files = os.listdir(os.path.dirname(self.model_path))
     return [f for f in files if os.path.isfile(self.model_path + "/" + f)]
   
-  def predict(self, frame: cv2.Mat, verbose: bool = False) -> np.ndarray:
+  def predict(self, frame: cv2.Mat, verbose: bool = False) -> Tuple[np.ndarray, List[Dict]]:
     results: Results = self.model.predict(
       frame,
       conf=self.confidence,
@@ -51,4 +51,18 @@ class Detector:
       verbose=verbose
     )[0]
 
-    return results.plot()
+    detections = []
+    if results.boxes:
+        for box in results.boxes:
+            b = box.xyxy[0].tolist()
+            c = box.conf[0].item()
+            cls_id = int(box.cls[0].item())
+            name = self.model.names[cls_id] if hasattr(self.model, 'names') else str(cls_id)
+            detections.append({
+                "bbox": b,
+                "confidence": c,
+                "class_id": cls_id,
+                "name": name
+            })
+
+    return results.plot(), detections

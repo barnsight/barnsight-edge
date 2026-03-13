@@ -22,4 +22,8 @@ class Settings(BaseSettings):
   API_PORT: int = 8000
   RELOAD: bool = False
 
+  WEB_API_URL: str = "http://localhost:3000/api"
+  DEVICE_ID: str = "00000000-0000-0000-0000-000000000000"
+  PUSH_INTERVAL: int = 10  # Seconds between pushing detections to web
+
 settings = Settings()
