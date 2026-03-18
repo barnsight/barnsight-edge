@@ -15,7 +15,9 @@ class Detector:
       model_path: str = "models/",
       device: Literal["auto", "cpu", "cuda"] = "auto",
       confidence: float = 0.25,
-      iou: float = 0.7
+      iou: float = 0.7,
+      half_precision: bool = False,
+      img_size: int = 640
     ):
     if not os.path.exists(model_path):
       raise FileNotFoundError(f"File not found: {model_path}")
@@ -32,11 +34,13 @@ class Detector:
     # Load model
     self.model = YOLO(model_path)
     self.model.to(device)
-
+    
     # Setting up configuration
     self.model_path = model_path
     self.confidence = confidence
     self.iou_threshold = iou
+    self.half_precision = half_precision and device != "cpu" # Half precision mostly benefits GPU
+    self.img_size = img_size
 
   @property
   def list_models(self) -> List[str]:
@@ -48,6 +52,8 @@ class Detector:
       frame,
       conf=self.confidence,
       iou=self.iou_threshold,
+      imgsz=self.img_size,
+      half=self.half_precision,
       verbose=verbose
     )[0]
 

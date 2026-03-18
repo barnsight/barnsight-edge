@@ -9,7 +9,7 @@ class Settings(BaseSettings):
   )
     
   STREAM_URL: Union[str, int] = 0
-  MODEL_PATH: str = "models/yolo11n.pt"
+  MODEL_PATH: str = "models/manure.pt"
 
   FRAME_WIDTH: int = 640
   FRAME_HEIGHT: int = 640
@@ -17,13 +17,19 @@ class Settings(BaseSettings):
   FRAME_TIMEOUT: int = 60
 
   MAX_RESTARTS: int = 5
-
-  API_HOST: str = "0.0.0.0"
-  API_PORT: int = 8000
-  RELOAD: bool = False
-
-  WEB_API_URL: str = "http://localhost:3000/api"
-  DEVICE_ID: str = "00000000-0000-0000-0000-000000000000"
-  PUSH_INTERVAL: int = 10  # Seconds between pushing detections to web
+  
+  # Event & API Settings
+  API_URL: str = "http://localhost:80/api/v1/events"
+  API_KEY: str = "" # Must be set in .env
+  DEVICE_ID: str = "edge-device-01"
+  CAMERA_ID: str = "camera-01"
+  COOLDOWN_SECONDS: float = 5.0 # Time to wait before sending another event for the same region/class
+  MIN_CONFIDENCE: float = 0.5
+  ENABLE_DISPLAY: bool = False
+  
+  # Edge Hardware Optimizations
+  INFERENCE_FPS: float = 5.0  # Limit inference rate to save CPU/GPU
+  HALF_PRECISION: bool = False # Use FP16 for faster inference if supported
+  IMG_SIZE: int = 640          # Internal inference resolution (reduce to 320 or 416 for speed)
 
 settings = Settings()
