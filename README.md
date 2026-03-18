@@ -1,11 +1,10 @@
-# Edge Device
+# BarnSight Edge Device
 
 Real-time on-device detection of animal excrement for smarter farm hygiene monitoring.
 
-The BarnSight Edge Device is a lightweight, containerized AI system designed to run directly on farm hardware (edge devices). It processes live camera feeds locally, detects visible animal excrement using computer vision, and reports structured results to a backend service — all with low latency and minimal network dependency.
+The BarnSight Edge Device is a lightweight, background AI system designed to run directly on farm hardware. It processes live camera feeds locally, detects visible animal excrement using computer vision, and reports structured events to the central BarnSight API — all with low latency and extreme resilience to unstable network conditions.
 
-This repository contains everything required to build, run, and operate the edge detection component of the BarnSight platform.
-
+This repository contains everything required to build, configure, and operate the edge detection component of the BarnSight platform.
 
 ## 🚀 Purpose & Philosophy
 
@@ -13,123 +12,82 @@ Modern farms generate visual data constantly, but sending raw video to the cloud
 
 This project follows a simple principle:
     
-    Detect locally. Report intelligently. Visualize centrally.
+**Detect locally. Report intelligently. Store reliably.**
 
 The edge device:
+- Performs lightweight, on-device AI inference.
+- Minimizes bandwidth usage by only sending JSON events and highly compressed image snippets.
+- Continues operating and logging events to disk even during total internet outages.
+- Flushes queued events automatically when the connection is restored.
+- Acts as a reliable, autonomous sensor requiring zero manual intervention.
 
-- Performs on-device AI inference
-- Minimizes bandwidth usage
-- Continues operating even with unstable connectivity
-- Acts as a reliable, autonomous sensor in the barn
+## ⚙️ Core Features
 
-
-## What This Edge Device Does
-
-- 📷 Captures live video or image frames from connected cameras
-
-- 🧠 Runs AI-based detection of animal excrement (e.g. manure on floors)
-
-- 🟦 Identifies contaminated regions using bounding boxes or masks
-
-- 📊 Produces structured detection metadata (confidence, location, time)
-
-- 🔗 Sends results to a backend API (e.g. FastAPI server)
-
-- 📝 Logs activity for traceability and diagnostics
-
-
-⚠️ This system does not perform cleaning actions.
-It only detects, visualizes, and reports contamination.
-
-## 🧩High-Level Architecture
-
-```bash
-Camera
-  ↓
-Edge Device (this repo)
-  - Video stream handling
-  - AI inference
-  - Local logging
-  ↓
-Backend Server (FastAPI)
-  ↓
-Mobile / Web Client
-```
-
-## ⚙️ Core Components
-
-### Stream Handler
-- Manages camera input (live streams or frames)
-- Handles frame capture and preprocessing
-- Designed to work under varying lighting and conditions
-
-### Inference Engine
-
-- Loads optimized AI models
-- Runs real-time detection on frames
-- Outputs structured detection results (location, confidence)
-
-### Client Module
-
-- Communicates with the backend server
-- Sends detection events, metadata, and optional images
-- Designed to tolerate intermittent connectivity
-
-### Logging
-
-- Centralized logging for:
-    - Detections
-    - Errors
-    - System health
-
-- Useful for audits and debugging
+- **Hardware Optimized:** Features configurable inference frame rates, internal resolution scaling, and half-precision (FP16) support to run efficiently on low-to-mid tier edge hardware.
+- **Offline Queuing:** Uses a local SQLite database to safely buffer events if the central API goes offline.
+- **Smart Throttling:** Deduplicates repeated detections across consecutive frames using customizable cooldown periods to prevent API spam.
+- **Local Debugging:** Includes an optional OpenCV display overlay for setting up cameras and verifying model performance in real-time.
 
 ---
 
-## Usage
+## 🛠 Usage
 
-This project now runs directly on the host using Python and `uv`.
+This project runs directly on the host using Python and the `uv` package manager.
 
 ### Prerequisites
 
-- Python version as specified in `.python-version`
+- Python 3.10 or 3.11 (as specified in `.python-version`)
 - [`uv`](https://github.com/astral-sh/uv) installed
 
-### Install dependencies
+### Installation
 
-From the project root:
-
+1. Install the dependencies:
 ```bash
 uv sync
 ```
 
-### Run the edge app (FastAPI + OpenCV + YOLO)
+2. Create your configuration file:
+```bash
+cp .env.example .env
+```
 
-You can either use the helper script:
+3. Update `.env` with your specific settings:
+   - `STREAM_URL`: Your camera's RTSP feed or `0` for a local webcam.
+   - `API_URL`: The full URL to the central BarnSight API (e.g., `https://api.barnsight.ai/api/v1/events`).
+   - `API_KEY`: Your generated authentication key (must start with `bs_`).
+   - *See `.env.example` for all hardware optimization flags.*
 
+### Run the Edge Agent
+
+You can start the edge agent as a background process or interactively.
+
+Using the helper script:
 ```bash
 ./scripts/run.sh
 ```
 
-or call `uv` directly:
-
+Or calling `uv` directly:
 ```bash
 uv run python -m src.main
 ```
 
-The API and web UI will be available at:
+### Local Debugging (Display Mode)
+If you want to view the live camera feed with the bounding boxes drawn on screen, set `ENABLE_DISPLAY=True` in your `.env` file before starting the script. Press the `q` key on the window to safely stop the process.
 
-```bash
-http://localhost:8000/
+## 🏗 High-Level Architecture
+
+```text
+Camera (RTSP / USB)
+        ↓
+Edge Device (This Repo)
+  ├─ Stream Ingestion (Isolated thread, handles drops)
+  ├─ YOLO Inference Loop (Hardware throttled)
+  ├─ Event Deduplication (Cooldown timers)
+  └─ API Client / Offline Queue (SQLite fallback)
+        ↓
+Central BarnSight API (MongoDB)
 ```
 
-Make sure your `.env` file is configured (e.g. `STREAM_URL`, `MODEL_PATH`, etc.).
-
-# License
+## License
 
 Licensed under the terms specified in the **LICENSE** file.
-
-
-
-
-
