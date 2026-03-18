@@ -19,11 +19,11 @@ class Settings(BaseSettings):
   MAX_RESTARTS: int = 5
   
   # Event & API Settings
-  API_URL: str = "http://localhost:80/api/v1/events"
+  API_URL: str = "http://localhost:8000/api/v1/events"
   API_KEY: str = "" # Must be set in .env
   DEVICE_ID: str = "edge-device-01"
   CAMERA_ID: str = "camera-01"
-  COOLDOWN_SECONDS: float = 5.0 # Time to wait before sending another event for the same region/class
+  COOLDOWN_SECONDS: float = 1.0 # Time to wait before sending another event for the same region/class
   MIN_CONFIDENCE: float = 0.5
   ENABLE_DISPLAY: bool = False
   
