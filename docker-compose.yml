@@ -1,0 +1,44 @@
+services:
+  cam-barn-01:
+    build: .
+    container_name: barnsight-cam-01
+    env_file: .env.cam1
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  cam-barn-02:
+    build: .
+    container_name: barnsight-cam-02
+    env_file: .env.cam2
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  cam-barn-03:
+    build: .
+    container_name: barnsight-cam-03
+    env_file: .env.cam3
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  cam-barn-04:
+    build: .
+    container_name: barnsight-cam-04
+    env_file: .env.cam4
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,105 +1,120 @@
+"""HTTP client for sending detection events to BarnSight API.
+
+Handles event submission with automatic retry via in-memory queue
+when the API is unreachable. Runs a background flush thread that
+drains the queue when connectivity is restored.
+"""
+
 import time
-import json
 import base64
 import threading
-import requests
 from typing import Dict, Optional
+
+import requests
 
 from src.core.logger import logger
 from src.core.queue import DetectionQueue
 from src.config import settings
 
+
 class APIClient:
-    def __init__(self, api_url: str = settings.API_URL):
-        self.api_url = api_url
-        self.queue = DetectionQueue()
-        self._is_running = False
-        self._flush_thread = None
+  """Manages communication with the BarnSight API server."""
 
-    def start(self):
-        """Start the queue flushing thread."""
-        self._is_running = True
-        self._flush_thread = threading.Thread(target=self._flush_loop, daemon=True)
-        self._flush_thread.start()
-        logger.info("[+] APIClient initialized and queue flusher started")
+  def __init__(self, api_url: str = settings.API_URL):
+    self.api_url = api_url
+    self.queue = DetectionQueue()
+    self._is_running = False
+    self._flush_thread = None
 
-    def stop(self):
-        """Stop the queue flushing thread."""
-        self._is_running = False
-        if self._flush_thread and self._flush_thread.is_alive():
-            self._flush_thread.join(timeout=2.0)
-        logger.info("[*] APIClient stopped")
+  def start(self) -> None:
+    """Start the background queue flush thread."""
+    self._is_running = True
+    self._flush_thread = threading.Thread(target=self._flush_loop, daemon=True)
+    self._flush_thread.start()
+    logger.info("[+] APIClient initialized and queue flusher started")
 
-    def _prepare_payload(self, payload: Dict, image_bytes: Optional[bytes] = None) -> Dict:
-        """Prepare the payload for sending, optionally adding base64 image."""
-        prepared = dict(payload)
-        if image_bytes:
-            encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-            prepared["image_snapshot"] = encoded_image
-        return prepared
+  def stop(self) -> None:
+    """Stop the flush thread gracefully."""
+    self._is_running = False
+    if self._flush_thread and self._flush_thread.is_alive():
+      self._flush_thread.join(timeout=2.0)
+    logger.info("[*] APIClient stopped")
 
-    def _get_headers(self) -> Dict[str, str]:
-        """Get standard HTTP headers including authentication."""
-        return {
-            "Content-Type": "application/json",
-            "X-API-Key": settings.API_KEY
-        }
+  @staticmethod
+  def _normalize_timestamp(payload: Dict) -> Dict:
+    """Ensure timestamp ends with 'Z' for UTC ISO 8601 format."""
+    if "timestamp" not in payload:
+      return payload
+    ts = payload["timestamp"]
+    if not ts.endswith("Z"):
+      if ts.endswith("+00:00"):
+        ts = ts[:-6] + "Z"
+      else:
+        ts += "Z"
+      payload["timestamp"] = ts
+    return payload
 
-    def send_event(self, payload: Dict, image_bytes: Optional[bytes] = None):
-        """Attempt to send an event, queue it if sending fails."""
-        try:
-            prepared_payload = self._prepare_payload(payload, image_bytes)
-            
-            # Ensure timestamp strictly follows the UTC format ending with Z as per guide
-            if "timestamp" in prepared_payload and not prepared_payload["timestamp"].endswith("Z"):
-                 # if it ends with +00:00 (from isoformat), replace it, otherwise append Z
-                 if prepared_payload["timestamp"].endswith("+00:00"):
-                     prepared_payload["timestamp"] = prepared_payload["timestamp"][:-6] + "Z"
-                 else:
-                     prepared_payload["timestamp"] += "Z"
-            
-            response = requests.post(
-                self.api_url,
-                json=prepared_payload,
-                headers=self._get_headers(),
-                timeout=5.0
-            )
-            response.raise_for_status()
-            logger.info(f"[+] Successfully sent event for camera {payload.get('camera_id')}")
-        except Exception as e:
-            logger.error(f"[-] Failed to send event, adding to queue. Error: {e}")
-            self.queue.enqueue(self.api_url, payload, image_bytes)
+  def _prepare_payload(
+    self,
+    payload: Dict,
+    image_bytes: Optional[bytes] = None,
+  ) -> Dict:
+    """Build the final payload, encoding image as base64 if present."""
+    prepared = dict(payload)
+    if image_bytes:
+      prepared["image_snapshot"] = base64.b64encode(image_bytes).decode("utf-8")
+    return prepared
 
-    def _flush_loop(self):
-        """Continuously try to send queued events."""
-        while self._is_running:
-            if self.queue.size() > 0:
-                item = self.queue.dequeue()
-                if item:
-                    try:
-                        prepared_payload = self._prepare_payload(item["payload"], item["image_bytes"])
-                        
-                        # Ensure timestamp strict Z format
-                        if "timestamp" in prepared_payload and not prepared_payload["timestamp"].endswith("Z"):
-                            if prepared_payload["timestamp"].endswith("+00:00"):
-                                prepared_payload["timestamp"] = prepared_payload["timestamp"][:-6] + "Z"
-                            else:
-                                prepared_payload["timestamp"] += "Z"
-                                
-                        response = requests.post(
-                            item["endpoint"],
-                            json=prepared_payload,
-                            headers=self._get_headers(),
-                            timeout=5.0
-                        )
-                        response.raise_for_status()
-                        self.queue.remove(item["id"])
-                        logger.info(f"[+] Flushed queued event {item['id']}")
-                    except Exception as e:
-                        # If it fails again, we just wait before retrying the same item
-                        logger.debug(f"[-] Still cannot flush event {item['id']}: {e}")
-                        time.sleep(5.0) # Wait longer if network is down
-                        continue # Skip the normal sleep and retry
-            
-            # Small delay between flush attempts to avoid spinning
-            time.sleep(1.0)
+  def _get_headers(self) -> Dict[str, str]:
+    """Return HTTP headers for API requests."""
+    return {
+      "Content-Type": "application/json",
+      "X-API-Key": settings.API_KEY,
+    }
+
+  def send_event(
+    self,
+    payload: Dict,
+    image_bytes: Optional[bytes] = None,
+  ) -> None:
+    """Send a detection event to the API. Queues on failure."""
+    try:
+      prepared = self._prepare_payload(payload, image_bytes)
+      prepared = self._normalize_timestamp(prepared)
+      response = requests.post(
+        self.api_url,
+        json=prepared,
+        headers=self._get_headers(),
+        timeout=5.0,
+      )
+      response.raise_for_status()
+      logger.info(
+        f"[+] Successfully sent event for camera {payload.get('camera_id')}"
+      )
+    except Exception as e:
+      logger.error(f"[-] Failed to send event, queuing. Error: {e}")
+      self.queue.enqueue(self.api_url, payload, image_bytes)
+
+  def _flush_loop(self) -> None:
+    """Background thread: drain queued detections when API is reachable."""
+    while self._is_running:
+      item = self.queue.dequeue()
+      if item is None:
+        time.sleep(1.0)
+        continue
+      try:
+        prepared = self._prepare_payload(item["payload"], item["image_bytes"])
+        prepared = self._normalize_timestamp(prepared)
+        response = requests.post(
+          item["endpoint"],
+          json=prepared,
+          headers=self._get_headers(),
+          timeout=5.0,
+        )
+        response.raise_for_status()
+        logger.info("[+] Flushed queued event")
+      except Exception as e:
+        # Requeue failed item at the back, then back off
+        logger.debug(f"[-] Cannot flush event, requeuing: {e}")
+        self.queue.requeue(item)
+        time.sleep(5.0)
