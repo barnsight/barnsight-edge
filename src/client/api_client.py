@@ -62,7 +62,8 @@ class APIClient:
     """Build the final payload, encoding image as base64 if present."""
     prepared = dict(payload)
     if image_bytes:
-      prepared["image_snapshot"] = base64.b64encode(image_bytes).decode("utf-8")
+      b64_str = base64.b64encode(image_bytes).decode("utf-8")
+      prepared["image_snapshot"] = f"data:image/jpeg;base64,{b64_str}"
     return prepared
 
   def _get_headers(self) -> Dict[str, str]:
@@ -85,7 +86,7 @@ class APIClient:
         self.api_url,
         json=prepared,
         headers=self._get_headers(),
-        timeout=5.0,
+        timeout=30.0,
       )
       response.raise_for_status()
       logger.info(
@@ -109,7 +110,7 @@ class APIClient:
           item["endpoint"],
           json=prepared,
           headers=self._get_headers(),
-          timeout=5.0,
+          timeout=30.0,
         )
         response.raise_for_status()
         logger.info("[+] Flushed queued event")

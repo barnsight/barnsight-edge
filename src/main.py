@@ -137,10 +137,10 @@ class InferenceWorker:
         if detections and (
           current_time - self.last_detection_time > settings.COOLDOWN_SECONDS
         ):
-          # Find highest-confidence detection above threshold
+          # Find highest-confidence manure detection above threshold
           best_detection = None
           for det in detections:
-            if det["confidence"] >= settings.MIN_CONFIDENCE:
+            if det["name"].lower() == "manure" and det["confidence"] >= settings.MIN_CONFIDENCE:
               if not best_detection or det["confidence"] > best_detection["confidence"]:
                 best_detection = det
 
@@ -177,7 +177,7 @@ class InferenceWorker:
               },
             }
 
-            logger.info(f"Detected event. Confidence: {payload['confidence']:.2f}")
+            logger.info(f"Detected event. Confidence: {payload['confidence']:.2f}. Image size: {len(image_bytes) if image_bytes else 0} bytes")
 
             # Send event in background thread to avoid blocking inference
             threading.Thread(

@@ -45,7 +45,7 @@ class TestPreparePayload:
     payload = {"camera_id": "cam1"}
     result = client._prepare_payload(payload, image_bytes=b"img")
     assert "image_snapshot" in result
-    assert result["image_snapshot"] == "aW1n"  # base64 of b"img"
+    assert result["image_snapshot"] == "data:image/jpeg;base64,aW1n"  # base64 of b"img"
 
   def test_original_payload_not_mutated(self):
     client = APIClient()
@@ -114,13 +114,15 @@ class TestFlushLoop:
       prepared = client._prepare_payload(item["payload"], item["image_bytes"])
       prepared = client._normalize_timestamp(prepared)
       import requests
-      requests.post(
+      response = requests.post(
         item["endpoint"],
         json=prepared,
         headers=client._get_headers(),
         timeout=5.0,
       )
+      response.raise_for_status()
     except Exception:
       client.queue.requeue(item)
+    
     # Item should be back in queue
     assert client.queue.size() == 1
