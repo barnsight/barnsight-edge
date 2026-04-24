@@ -4,7 +4,7 @@ Uses pydantic-settings for type-validated environment variable
 parsing with automatic .env file loading.
 """
 
-from typing import Union
+from typing import Literal, Union
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -26,6 +26,8 @@ class Settings(BaseSettings):
   STREAM_FPS: int = 30
   STREAM_RECONNECT_INITIAL_DELAY: float = 0.1
   STREAM_RECONNECT_MAX_DELAY: float = 5.0
+  CAMERA_STALE_SECONDS: float = 10.0
+  CAMERA_FROZEN_SECONDS: float = 30.0
 
   # Model settings
   MODEL_PATH: str = "models/manure.pt"
@@ -48,6 +50,10 @@ class Settings(BaseSettings):
   REQUIRE_HTTPS: bool = False
   EVENT_SEND_WORKERS: int = 2
   QUEUE_MAX_SIZE: int = 1000
+  QUEUE_BACKEND: Literal["memory", "sqlite"] = "memory"
+  QUEUE_DB_PATH: str = "data/events_queue.sqlite3"
+  QUEUE_MAX_RETRY_COUNT: int = 0
+  QUEUE_STORE_IMAGES: bool = False
   MAX_IMAGE_BYTES: int = 750_000
   COOLDOWN_SECONDS: float = 1.0
   MIN_CONFIDENCE: float = 0.5
@@ -78,6 +84,8 @@ class Settings(BaseSettings):
     "API_BACKOFF_SECONDS",
     "STREAM_RECONNECT_INITIAL_DELAY",
     "STREAM_RECONNECT_MAX_DELAY",
+    "CAMERA_STALE_SECONDS",
+    "CAMERA_FROZEN_SECONDS",
   )
   @classmethod
   def _positive_float(cls, value: float) -> float:
@@ -85,7 +93,10 @@ class Settings(BaseSettings):
       raise ValueError("value must be greater than 0")
     return value
 
-  @field_validator("MIN_CONFIDENCE", "REGION_OVERLAP_THRESHOLD")
+  @field_validator(
+    "MIN_CONFIDENCE",
+    "REGION_OVERLAP_THRESHOLD",
+  )
   @classmethod
   def _unit_interval(cls, value: float) -> float:
     if not 0.0 <= value <= 1.0:
@@ -115,7 +126,7 @@ class Settings(BaseSettings):
       raise ValueError("value must be greater than 0")
     return value
 
-  @field_validator("API_MAX_RETRIES")
+  @field_validator("API_MAX_RETRIES", "QUEUE_MAX_RETRY_COUNT")
   @classmethod
   def _non_negative_int(cls, value: int) -> int:
     if value < 0:

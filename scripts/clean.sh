@@ -1,9 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Exit on any error
+# Remove local generated files without touching source or credentials.
 set -euo pipefail
 
-# Colors for output
 GREEN='\033[0;32m'
 NC='\033[0m'
 
@@ -11,16 +10,12 @@ log_info() {
   echo -e "${GREEN}[INFO]${NC} $1"
 }
 
-# Remove stopped containers
-log_info "Removing stopped containers..."
-docker container prune -f
+log_info "Removing Python caches..."
+find . -type d \
+  \( -name "__pycache__" -o -name ".pytest_cache" -o -name ".ruff_cache" -o -name ".mypy_cache" \) \
+  -prune -exec rm -rf {} +
 
-# Optional: Remove unused images
-log_info "Removing unused images..."
-docker image prune -f
+log_info "Removing coverage artifacts..."
+rm -rf .coverage .coverage.* htmlcov coverage.xml
 
-# Optional: Remove unused networks
-log_info "Removing unused networks..."
-docker network prune -f
-
-log_info "Clean up completed."
+log_info "Clean completed."

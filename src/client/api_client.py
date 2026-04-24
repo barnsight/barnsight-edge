@@ -17,7 +17,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from src.core.logger import logger
-from src.core.queue import DetectionQueue
+from src.core.queue import create_detection_queue
 from src.config import settings
 
 
@@ -26,7 +26,13 @@ class APIClient:
 
   def __init__(self, api_url: str = settings.API_URL):
     self.api_url = api_url
-    self.queue = DetectionQueue(maxsize=settings.QUEUE_MAX_SIZE)
+    self.queue = create_detection_queue(
+      backend=settings.QUEUE_BACKEND,
+      maxsize=settings.QUEUE_MAX_SIZE,
+      db_path=settings.QUEUE_DB_PATH,
+      max_retry_count=settings.QUEUE_MAX_RETRY_COUNT,
+      store_images=settings.QUEUE_STORE_IMAGES,
+    )
     self.session = requests.Session()
     self.session.mount("http://", self._build_adapter())
     self.session.mount("https://", self._build_adapter())
@@ -82,6 +88,7 @@ class APIClient:
     if self._flush_thread and self._flush_thread.is_alive():
       self._flush_thread.join(timeout=2.0)
     self._executor.shutdown(wait=False, cancel_futures=True)
+    self.queue.close()
     self.session.close()
     logger.info("[*] APIClient stopped")
 
@@ -124,6 +131,16 @@ class APIClient:
       "X-API-Key": settings.API_KEY,
     }
 
+  def _post_json(self, url: str, payload: Dict) -> requests.Response:
+    """Post JSON using shared timeout, TLS, headers, and retry session."""
+    return self.session.post(
+      url,
+      json=payload,
+      headers=self._get_headers(),
+      timeout=self._timeout,
+      verify=settings.API_VERIFY_TLS,
+    )
+
   def send_event(
     self,
     payload: Dict,
@@ -133,13 +150,7 @@ class APIClient:
     try:
       prepared = self._prepare_payload(payload, image_bytes)
       prepared = self._normalize_timestamp(prepared)
-      response = self.session.post(
-        self.api_url,
-        json=prepared,
-        headers=self._get_headers(),
-        timeout=self._timeout,
-        verify=settings.API_VERIFY_TLS,
-      )
+      response = self._post_json(self.api_url, prepared)
       response.raise_for_status()
       logger.info(
         f"[+] Successfully sent event for camera {payload.get('camera_id')}"
@@ -147,6 +158,31 @@ class APIClient:
     except Exception as e:
       logger.error(f"[-] Failed to send event, queuing. Error: {e}")
       self.queue.enqueue(self.api_url, payload, image_bytes)
+
+  def send_heartbeat(self, url: str, payload: Dict) -> bool:
+    """Send heartbeat without queuing on failure."""
+    try:
+      response = self._post_json(url, payload)
+      response.raise_for_status()
+      return True
+    except Exception as exc:
+      logger.debug(f"Heartbeat send failed: {exc}")
+      return False
+
+  def get_remote_config(self, url: str) -> Optional[Dict]:
+    """Fetch remote device config without mutating local secrets."""
+    try:
+      response = self.session.get(
+        url,
+        headers=self._get_headers(),
+        timeout=self._timeout,
+        verify=settings.API_VERIFY_TLS,
+      )
+      response.raise_for_status()
+      return response.json()
+    except Exception as exc:
+      logger.debug(f"Remote config fetch failed: {exc}")
+      return None
 
   def submit_event(
     self,
@@ -164,19 +200,18 @@ class APIClient:
         time.sleep(1.0)
         continue
       try:
-        prepared = self._prepare_payload(item["payload"], item["image_bytes"])
+        payload = dict(item["payload"])
+        created_at = item.get("created_at")
+        if created_at:
+          payload["queue_latency_seconds"] = max(0.0, time.time() - created_at)
+        prepared = self._prepare_payload(payload, item["image_bytes"])
         prepared = self._normalize_timestamp(prepared)
-        response = self.session.post(
-          item["endpoint"],
-          json=prepared,
-          headers=self._get_headers(),
-          timeout=self._timeout,
-          verify=settings.API_VERIFY_TLS,
-        )
+        response = self._post_json(item["endpoint"], prepared)
         response.raise_for_status()
+        self.queue.delete(item)
         logger.info("[+] Flushed queued event")
       except Exception as e:
         # Requeue failed item at the back, then back off
         logger.debug(f"[-] Cannot flush event, requeuing: {e}")
-        self.queue.requeue(item)
+        self.queue.requeue(item, last_error=str(e))
         time.sleep(5.0)

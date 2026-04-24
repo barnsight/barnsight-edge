@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Simple helper to run the edge app locally (FastAPI + OpenCV + YOLO)
+# Run the BarnSight Edge worker locally.
 set -euo pipefail
 
 uv run python -m src.main

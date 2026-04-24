@@ -35,6 +35,11 @@ class StreamHandler:
     self._lock = threading.Lock()
     self._thread: Optional[threading.Thread] = None
     self._is_running = False
+    self._last_frame_at: Optional[float] = None
+    self._last_frame_signature: Optional[float] = None
+    self._frozen_since: Optional[float] = None
+    self.restart_count = 0
+    self.consecutive_failures = 0
 
   def _create_capture(self, source: Union[str, int]) -> cv2.VideoCapture:
     """Open and configure a video capture device."""
@@ -74,11 +79,15 @@ class StreamHandler:
       self.cap.release()
     with self._lock:
       self._frame = None
+      self._last_frame_at = None
+      self._last_frame_signature = None
+      self._frozen_since = None
     logger.info("[+] Camera stopped.")
 
   def restart(self) -> None:
     """Stop and re-open the camera stream."""
     logger.info("[*] Restarting camera stream...")
+    self.restart_count += 1
     self.stop()
     time.sleep(1.0)
     try:
@@ -99,8 +108,10 @@ class StreamHandler:
         try:
           self.cap = self._create_capture(self.source)
           reconnect_delay = settings.STREAM_RECONNECT_INITIAL_DELAY
+          self.consecutive_failures = 0
           logger.info("[+] Camera reconnected")
         except Exception:
+          self.consecutive_failures += 1
           reconnect_delay = min(
             reconnect_delay * 2,
             settings.STREAM_RECONNECT_MAX_DELAY,
@@ -108,10 +119,26 @@ class StreamHandler:
         continue
       ret, frame = self.cap.read()
       if not ret:
+        self.consecutive_failures += 1
         time.sleep(0.01)
         continue
+      signature = self._frame_signature(frame)
+      now = time.time()
       with self._lock:
+        if self._last_frame_signature == signature:
+          self._frozen_since = self._frozen_since or now
+        else:
+          self._frozen_since = None
+        self._last_frame_signature = signature
+        self._last_frame_at = now
         self._frame = (ret, frame)
+        self.consecutive_failures = 0
+
+  @staticmethod
+  def _frame_signature(frame: np.ndarray) -> float:
+    """Return a cheap frame signature for frozen-stream detection."""
+    sample = cv2.resize(frame, (16, 16), interpolation=cv2.INTER_AREA)
+    return float(sample.mean())
 
   def read(self) -> Tuple[bool, Optional[np.ndarray]]:
     """Return the latest captured frame."""
@@ -125,6 +152,44 @@ class StreamHandler:
   def is_running(self) -> bool:
     """Whether the capture thread is active."""
     return self._is_running
+
+  @property
+  def last_frame_at(self) -> Optional[float]:
+    """Unix timestamp for the latest successful frame."""
+    with self._lock:
+      return self._last_frame_at
+
+  @property
+  def is_connected(self) -> bool:
+    """Whether OpenCV currently reports the stream as open."""
+    return bool(self.cap and self.cap.isOpened())
+
+  @property
+  def is_stale(self) -> bool:
+    """Whether no frame has arrived within the configured stale window."""
+    with self._lock:
+      if self._last_frame_at is None:
+        return True
+      return time.time() - self._last_frame_at > settings.CAMERA_STALE_SECONDS
+
+  @property
+  def is_frozen(self) -> bool:
+    """Whether the frame signature has been unchanged too long."""
+    with self._lock:
+      if self._frozen_since is None:
+        return False
+      return time.time() - self._frozen_since > settings.CAMERA_FROZEN_SECONDS
+
+  def health(self) -> dict:
+    """Return camera health for heartbeat and diagnostics."""
+    return {
+      "camera_connected": self.is_connected,
+      "last_frame_at": self.last_frame_at,
+      "is_stale": self.is_stale,
+      "is_frozen": self.is_frozen,
+      "restart_count": self.restart_count,
+      "consecutive_failures": self.consecutive_failures,
+    }
 
   def __enter__(self):
     self.start()

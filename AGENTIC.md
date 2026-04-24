@@ -6,6 +6,12 @@ BarnSight Edge is a Python edge-inference worker for local barn camera monitorin
 
 The system is designed for constrained edge hardware, unstable rural networks, and unattended operation.
 
+## Multi-Camera Model
+
+BarnSight Edge uses one worker/container per camera. A barn can run many camera workers on the same physical edge host, but each worker owns one `STREAM_URL`, one `CAMERA_ID`, one region tracker, one queue, and one log stream.
+
+Use a shared `DEVICE_ID` for the edge host or barn gateway, and unique `CAMERA_ID` values for each physical stream. Do not add a single-process multi-camera loop unless there is a strong operational reason; isolated workers make failures, restarts, queueing, and resource limits easier to manage.
+
 ## Core Runtime Flow
 
 ```text
@@ -20,7 +26,8 @@ Camera stream
 
 ## Key Files
 
-- `src/main.py`: Entry point and inference orchestration.
+- `src/main.py`: Thin executable entry point.
+- `src/inference/worker.py`: InferenceWorker orchestration.
 - `src/config.py`: Pydantic settings loaded from environment variables.
 - `src/inference/detector.py`: Ultralytics YOLO wrapper.
 - `src/core/stream_handler.py`: Threaded camera capture with reconnect backoff.
@@ -46,6 +53,13 @@ uv run python -m src.main
 - Preserve 2-space indentation and project formatting conventions.
 - Add or update tests when changing queue, API, region tracking, or config behavior.
 - Use environment variables for deploy-time behavior instead of hardcoded production settings.
+
+## Agent Tasks
+
+- Before finalizing code changes, run `uv run pytest tests/ -v` and `uv run python -m compileall src`.
+- Keep Python indentation at 2 spaces in edited files.
+- Keep the multi-camera deployment model documented as one worker/container per camera with shared `DEVICE_ID` and unique `CAMERA_ID`.
+- If enabling SQLite queues for multi-camera deployments, use a separate `QUEUE_DB_PATH` per camera worker.
 
 ## Security Expectations
 

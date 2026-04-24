@@ -18,14 +18,14 @@ The edge device:
 - Performs lightweight, on-device AI inference.
 - Minimizes bandwidth usage by only sending JSON events and highly compressed image snippets.
 - Deduplicates detections by spatial region to avoid sending the same manure spot twice.
-- Continues operating and buffering events in memory even during total internet outages.
+- Continues operating and buffering events during total internet outages.
 - Flushes queued events automatically when the connection is restored.
 - Acts as a reliable, autonomous sensor requiring zero manual intervention.
 
 ## Core Features
 
 - **Hardware Optimized:** Configurable inference frame rates, internal resolution scaling, and half-precision (FP16) support to run efficiently on low-to-mid tier edge hardware.
-- **Offline Queuing:** In-memory FIFO queue buffers events when the API is unreachable; flushes automatically on reconnect.
+- **Offline Queuing:** Bounded memory queue by default, with optional SQLite durability for events that must survive restarts; flushes automatically on reconnect.
 - **Bounded Edge Resources:** Queue size, event sender workers, image payload size, stream FPS, and region tracker memory are configurable to prevent runaway RAM/thread usage on small devices.
 - **Secure API Transport Controls:** HTTPS enforcement, TLS verification, connect/read timeouts, retry backoff, and API key sanity checks are built into the API client.
 - **Region-Based Deduplication:** Tracks detection bounding boxes using IoU (Intersection over Union) matching. Prevents duplicate image sends for the same manure spot within a configurable cooldown window.
@@ -149,7 +149,20 @@ uv run pytest tests/ -v --cov=src --cov-report=term-missing
 
 ## Multi-Camera Setup (Docker)
 
-Each camera runs in its own isolated container. One host manages all cameras via Docker Compose.
+Each camera runs as its own isolated edge worker. One physical edge host can manage many cameras via Docker Compose, but each camera gets a separate process/container, queue, cooldown state, and log stream.
+
+Use the same `DEVICE_ID` for all cameras attached to the same edge box or barn gateway, and use a unique `CAMERA_ID` for each camera:
+
+```text
+Barn
+  -> Edge device: edge-barn-01
+      -> Worker: barn-01-cam-a
+      -> Worker: barn-01-cam-b
+      -> Worker: barn-01-cam-c
+  -> BarnSight API groups events by device_id, camera_id, barn, and zone
+```
+
+This isolation is intentional. A frozen RTSP stream, bad camera password, or high CPU load from one camera should not stop the other cameras from reporting contamination events.
 
 ### Prerequisites
 
@@ -167,6 +180,7 @@ cp .env.camera.example .env.cam3
 
 2. Edit each `.env.camN` file — at minimum change:
    - `STREAM_URL` — the RTSP URL or device index for that camera
+   - `DEVICE_ID` — shared ID for the edge host or barn gateway
    - `CAMERA_ID` — unique name (e.g., `barn-01-cam-a`)
    - `API_KEY` — your BarnSight API key
 
@@ -191,6 +205,26 @@ services:
 docker compose up -d --build
 ```
 
+### Event Identity
+
+Every camera worker sends events with the same device identity model:
+
+```json
+{
+  "device_id": "edge-barn-01",
+  "camera_id": "barn-01-cam-a",
+  "confidence": 0.87,
+  "bounding_box": {
+    "x": 120,
+    "y": 210,
+    "width": 80,
+    "height": 65
+  }
+}
+```
+
+The API should treat `device_id` as the edge host/gateway and `camera_id` as the physical camera stream. Future barn-floor zones should be scoped per camera because each camera has a different view of the floor.
+
 ### Managing Cameras
 
 | Command | Description |
@@ -206,6 +240,7 @@ docker compose up -d --build
 
 - **Reduce per-camera FPS:** Set `INFERENCE_FPS=3.0` in each `.env.camN`
 - **Lower resolution:** Set `IMG_SIZE=320` for faster inference
+- **Use per-camera queues:** Keep a separate queue file per camera if `QUEUE_BACKEND=sqlite`
 - **Stagger starts:** Add `deploy: resources: limits: cpus: '0.5'` per service
 - **Limit log size:** The compose file caps logs at 10MB per camera with 3 rotations
 
@@ -215,30 +250,31 @@ docker compose up -d --build
 Camera (RTSP / USB)
         ↓
 Edge Device (This Repo)
-  ├─ Stream Ingestion (Threaded, auto-reconnect with backoff)
-  ├─ YOLO Inference Loop (Hardware throttled)
-  ├─ Region Tracker (IoU-based deduplication, per-region cooldown)
-  ├─ Event Deduplication (Global cooldown timers)
-  └─ API Client / Offline Queue (bounded sender pool, retrying HTTP session, bounded FIFO)
+  ├─ Camera Worker A (STREAM_URL + CAMERA_ID + queue)
+  ├─ Camera Worker B (STREAM_URL + CAMERA_ID + queue)
+  └─ Camera Worker C (STREAM_URL + CAMERA_ID + queue)
         ↓
 Central BarnSight API (MongoDB + Cloudinary)
 ```
+
+Each camera worker contains stream ingestion, YOLO inference, region tracking, event throttling, and API delivery.
 
 ## Project Structure
 
 ```
 src/
-├── main.py                  # Entry point: InferenceWorker
+├── main.py                  # Thin executable entry point
 ├── config.py                # Pydantic settings from .env
 ├── client/
 │   └── api_client.py        # HTTP client + offline queue flusher
 ├── core/
 │   ├── logger.py            # JSON-structured logging
-│   ├── queue.py             # In-memory detection queue (deque)
+│   ├── queue.py             # In-memory or SQLite detection queue
 │   ├── region_tracker.py    # IoU-based region deduplication
 │   └── stream_handler.py    # Threaded camera stream reader
 └── inference/
-    └── detector.py          # YOLO model wrapper
+    ├── detector.py          # YOLO model wrapper
+    └── worker.py            # InferenceWorker orchestration
 
 tests/
 ├── test_region_tracker.py   # Region dedup tests (IoU, cooldown, overlap)
@@ -257,6 +293,8 @@ tests/
 | `STREAM_FPS` | `30` | Requested camera capture FPS |
 | `STREAM_RECONNECT_INITIAL_DELAY` | `0.1` | Initial reconnect delay after camera disconnect |
 | `STREAM_RECONNECT_MAX_DELAY` | `5.0` | Maximum reconnect delay |
+| `CAMERA_STALE_SECONDS` | `10.0` | Mark stream stale when no frame arrives in this window |
+| `CAMERA_FROZEN_SECONDS` | `30.0` | Mark stream frozen when frame signature does not change |
 | `INFERENCE_FPS` | `5.0` | Target inference frames per second |
 | `HALF_PRECISION` | `False` | Use FP16 (GPU only) |
 | `IMG_SIZE` | `640` | Internal inference resolution |
@@ -269,6 +307,10 @@ tests/
 | `API_MAX_RETRIES` | `2` | Retries for transient API errors |
 | `API_BACKOFF_SECONDS` | `0.5` | Retry backoff factor |
 | `EVENT_SEND_WORKERS` | `2` | Maximum concurrent outbound event senders |
+| `QUEUE_BACKEND` | `memory` | Offline queue backend: `memory` or `sqlite` |
+| `QUEUE_DB_PATH` | `data/events_queue.sqlite3` | SQLite queue file path when `QUEUE_BACKEND=sqlite` |
+| `QUEUE_MAX_RETRY_COUNT` | `0` | Maximum queue retries; `0` means unlimited |
+| `QUEUE_STORE_IMAGES` | `False` | Store image bytes in SQLite queue. Keep disabled by default |
 | `QUEUE_MAX_SIZE` | `1000` | Maximum offline queue length; oldest events drop first |
 | `MAX_IMAGE_BYTES` | `750000` | Skip image snapshots larger than this limit |
 | `DEVICE_ID` | `edge-device-01` | Unique device identifier |
