@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from src.core.logger import logger
+from src.config import settings
 
 
 class StreamHandler:
@@ -90,20 +91,24 @@ class StreamHandler:
 
   def _update_frame(self) -> None:
     """Background loop: continuously read frames from the camera."""
-    reconnect_delay = 0.1
+    reconnect_delay = settings.STREAM_RECONNECT_INITIAL_DELAY
     while self._is_running:
       if not self.cap.isOpened():
         logger.error("[x] Camera disconnected, attempting reconnect...")
         time.sleep(reconnect_delay)
         try:
           self.cap = self._create_capture(self.source)
-          reconnect_delay = 0.1  # Reset delay on success
+          reconnect_delay = settings.STREAM_RECONNECT_INITIAL_DELAY
           logger.info("[+] Camera reconnected")
         except Exception:
-          reconnect_delay = min(reconnect_delay * 2, 5.0)  # Exponential backoff
+          reconnect_delay = min(
+            reconnect_delay * 2,
+            settings.STREAM_RECONNECT_MAX_DELAY,
+          )
         continue
       ret, frame = self.cap.read()
       if not ret:
+        time.sleep(0.01)
         continue
       with self._lock:
         self._frame = (ret, frame)
@@ -113,7 +118,8 @@ class StreamHandler:
     with self._lock:
       if self._frame is None:
         return False, None
-      return self._frame
+      ret, frame = self._frame
+      return ret, frame.copy()
 
   @property
   def is_running(self) -> bool:

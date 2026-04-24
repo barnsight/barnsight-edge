@@ -8,7 +8,6 @@ import time
 import signal
 import sys
 import datetime
-import threading
 from typing import Optional
 
 import cv2
@@ -40,6 +39,7 @@ class InferenceWorker:
         settings.STREAM_URL,
         width=settings.FRAME_WIDTH,
         height=settings.FRAME_HEIGHT,
+        fps=settings.STREAM_FPS,
       )
       self.camera.start()
       logger.info("[+] Camera initialized")
@@ -66,6 +66,8 @@ class InferenceWorker:
     self.region_tracker = RegionTracker(
       overlap_threshold=settings.REGION_OVERLAP_THRESHOLD,
       cooldown_seconds=settings.IMAGE_COOLDOWN_SECONDS,
+      ttl_seconds=settings.REGION_TTL_SECONDS,
+      max_entries=settings.REGION_MAX_ENTRIES,
     )
     logger.info(
       f"[+] Region tracker initialized "
@@ -124,7 +126,10 @@ class InferenceWorker:
       last_inference_time = current_time
 
       try:
-        annotated, detections = self.detector.predict(frame)
+        annotated, detections = self.detector.predict(
+          frame,
+          annotate=settings.ENABLE_DISPLAY,
+        )
 
         # Show detection window if enabled
         if settings.ENABLE_DISPLAY:
@@ -177,14 +182,13 @@ class InferenceWorker:
               },
             }
 
-            logger.info(f"Detected event. Confidence: {payload['confidence']:.2f}. Image size: {len(image_bytes) if image_bytes else 0} bytes")
+            logger.info(
+              f"Detected event. Confidence: {payload['confidence']:.2f}. "
+              f"Image size: {len(image_bytes) if image_bytes else 0} bytes"
+            )
 
-            # Send event in background thread to avoid blocking inference
-            threading.Thread(
-              target=self.api_client.send_event,
-              args=(payload, image_bytes),
-              daemon=True,
-            ).start()
+            # Send event through a bounded executor to avoid unbounded threads.
+            self.api_client.submit_event(payload, image_bytes)
 
       except Exception as exc:
         logger.error(f"[x] Detector error: {exc}")

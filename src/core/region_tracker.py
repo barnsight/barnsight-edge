@@ -7,7 +7,8 @@ over Union) exceeds the configured threshold.
 """
 
 import time
-from typing import Dict, List, Tuple
+import threading
+from typing import Dict, List, Optional, Tuple
 
 
 class RegionTracker:
@@ -17,11 +18,16 @@ class RegionTracker:
     self,
     overlap_threshold: float = 0.5,
     cooldown_seconds: float = 5.0,
+    ttl_seconds: float = 300.0,
+    max_entries: int = 512,
   ):
     self.overlap_threshold = overlap_threshold
     self.cooldown_seconds = cooldown_seconds
+    self.ttl_seconds = ttl_seconds
+    self.max_entries = max_entries
     # Maps region bbox tuple -> last_send_time
     self._regions: Dict[Tuple[float, float, float, float], float] = {}
+    self._lock = threading.Lock()
 
   @staticmethod
   def _iou(box_a: List[float], box_b: List[float]) -> float:
@@ -44,7 +50,24 @@ class RegionTracker:
 
     return inter_area / union_area
 
-  def _find_matching_region(self, bbox: List[float]) -> Tuple[float, float, float, float]:
+  def _prune(self, now: Optional[float] = None) -> None:
+    """Remove stale region entries to bound memory on long-running devices."""
+    now = now or time.time()
+    expired = [
+      key for key, last_seen in self._regions.items()
+      if now - last_seen >= self.ttl_seconds
+    ]
+    for key in expired:
+      self._regions.pop(key, None)
+
+    while len(self._regions) > self.max_entries:
+      oldest_key = min(self._regions, key=self._regions.get)
+      self._regions.pop(oldest_key, None)
+
+  def _find_matching_region(
+    self,
+    bbox: List[float],
+  ) -> Optional[Tuple[float, float, float, float]]:
     """Find an existing region that overlaps with this bbox.
 
     Returns the matching region key if found, or None.
@@ -66,11 +89,14 @@ class RegionTracker:
 
     Returns True if no matching region exists or the cooldown has expired.
     """
-    match = self._find_matching_region(bbox)
-    if match is None:
-      return True
-    elapsed = time.time() - self._regions[match]
-    return elapsed >= self.cooldown_seconds
+    with self._lock:
+      now = time.time()
+      self._prune(now)
+      match = self._find_matching_region(bbox)
+      if match is None:
+        return True
+      elapsed = now - self._regions[match]
+      return elapsed >= self.cooldown_seconds
 
   def mark_sent(self, bbox: List[float]) -> None:
     """Record that an image was sent for this region.
@@ -78,20 +104,29 @@ class RegionTracker:
     If a matching region exists, updates its timestamp.
     Otherwise creates a new region entry.
     """
-    match = self._find_matching_region(bbox)
-    key = match if match is not None else tuple(round(v, 1) for v in bbox)
-    self._regions[key] = time.time()
+    with self._lock:
+      now = time.time()
+      self._prune(now)
+      match = self._find_matching_region(bbox)
+      key = match if match is not None else tuple(round(v, 1) for v in bbox)
+      self._regions[key] = now
 
   def check_and_mark(self, bbox: List[float]) -> bool:
     """Atomic check-and-mark: returns True if should send, then marks.
 
     This is the primary method used by the inference loop.
     """
-    if self.should_send(bbox):
-      self.mark_sent(bbox)
+    with self._lock:
+      now = time.time()
+      self._prune(now)
+      match = self._find_matching_region(bbox)
+      if match is not None and now - self._regions[match] < self.cooldown_seconds:
+        return False
+      key = match if match is not None else tuple(round(v, 1) for v in bbox)
+      self._regions[key] = now
       return True
-    return False
 
   def reset(self) -> None:
     """Clear all tracked regions."""
-    self._regions.clear()
+    with self._lock:
+      self._regions.clear()

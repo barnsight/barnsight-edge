@@ -6,6 +6,7 @@ suitable for log aggregation and monitoring systems.
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from logging.config import dictConfig
 
@@ -27,6 +28,8 @@ class JsonFormatter(logging.Formatter):
     return json.dumps(log_record)
 
 
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
 log_config = {
   "version": 1,
   "disable_existing_loggers": False,
@@ -38,15 +41,15 @@ log_config = {
   "handlers": {
     "console": {
       "class": "logging.StreamHandler",
-      "level": "DEBUG",
+      "level": LOG_LEVEL,
       "formatter": "json",
       "stream": "ext://sys.stdout",
     },
   },
   "loggers": {
-    "app": {"handlers": ["console"], "level": "DEBUG", "propagate": False},
+    "app": {"handlers": ["console"], "level": LOG_LEVEL, "propagate": False},
   },
-  "root": {"handlers": ["console"], "level": "DEBUG"},
+  "root": {"handlers": ["console"], "level": LOG_LEVEL},
 }
 
 dictConfig(log_config)

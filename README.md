@@ -26,8 +26,11 @@ The edge device:
 
 - **Hardware Optimized:** Configurable inference frame rates, internal resolution scaling, and half-precision (FP16) support to run efficiently on low-to-mid tier edge hardware.
 - **Offline Queuing:** In-memory FIFO queue buffers events when the API is unreachable; flushes automatically on reconnect.
+- **Bounded Edge Resources:** Queue size, event sender workers, image payload size, stream FPS, and region tracker memory are configurable to prevent runaway RAM/thread usage on small devices.
+- **Secure API Transport Controls:** HTTPS enforcement, TLS verification, connect/read timeouts, retry backoff, and API key sanity checks are built into the API client.
 - **Region-Based Deduplication:** Tracks detection bounding boxes using IoU (Intersection over Union) matching. Prevents duplicate image sends for the same manure spot within a configurable cooldown window.
 - **Smart Throttling:** Global cooldown plus per-region cooldown prevents API spam from consecutive frames.
+- **Headless Inference Optimization:** Detection overlays are skipped unless display mode is enabled, reducing CPU use in production.
 - **Local Debugging:** Optional OpenCV display overlay for setting up cameras and verifying model performance in real-time.
 - **Auto-Reconnection:** Camera stream handler automatically reconnects to RTSP sources with exponential backoff on disconnect.
 
@@ -71,6 +74,8 @@ For resource-constrained devices, adjust these settings in `.env`:
 IMG_SIZE=320          # Lower resolution = faster inference, less accuracy
 INFERENCE_FPS=3.0     # Fewer frames per second = lower CPU usage
 HALF_PRECISION=True   # FP16 on CUDA-capable devices (Jetson, etc.)
+EVENT_SEND_WORKERS=2  # Keep outbound API work bounded on small CPUs
+MAX_IMAGE_BYTES=750000
 ```
 
 ### Adding New Classes
@@ -110,6 +115,7 @@ cp .env.example .env
    - `STREAM_URL`: Your camera's RTSP feed or `0` for a local webcam.
    - `API_URL`: The full URL to the central BarnSight API (e.g., `https://api.barnsight.ai/api/v1/events`).
    - `API_KEY`: Your generated authentication key (must start with `bs_`).
+   - `REQUIRE_HTTPS=True`: Recommended outside local development.
    - *See `.env.example` for all hardware optimization flags.*
 
 ### Run the Edge Agent
@@ -213,7 +219,7 @@ Edge Device (This Repo)
   ├─ YOLO Inference Loop (Hardware throttled)
   ├─ Region Tracker (IoU-based deduplication, per-region cooldown)
   ├─ Event Deduplication (Global cooldown timers)
-  └─ API Client / Offline Queue (In-memory FIFO, auto-flush)
+  └─ API Client / Offline Queue (bounded sender pool, retrying HTTP session, bounded FIFO)
         ↓
 Central BarnSight API (MongoDB + Cloudinary)
 ```
@@ -248,11 +254,23 @@ tests/
 | `MODEL_PATH` | `models/manure.pt` | Path to YOLO weights |
 | `FRAME_WIDTH` | `640` | Camera frame width |
 | `FRAME_HEIGHT` | `640` | Camera frame height |
+| `STREAM_FPS` | `30` | Requested camera capture FPS |
+| `STREAM_RECONNECT_INITIAL_DELAY` | `0.1` | Initial reconnect delay after camera disconnect |
+| `STREAM_RECONNECT_MAX_DELAY` | `5.0` | Maximum reconnect delay |
 | `INFERENCE_FPS` | `5.0` | Target inference frames per second |
 | `HALF_PRECISION` | `False` | Use FP16 (GPU only) |
 | `IMG_SIZE` | `640` | Internal inference resolution |
 | `API_URL` | `http://localhost:8000/api/v1/events` | Central API endpoint |
 | `API_KEY` | `""` | Authentication key (must start with `bs_`) |
+| `REQUIRE_HTTPS` | `False` | Reject non-HTTPS API URLs when enabled |
+| `API_VERIFY_TLS` | `True` | Verify TLS certificates for HTTPS API requests |
+| `API_CONNECT_TIMEOUT_SECONDS` | `3.0` | HTTP connection timeout |
+| `API_TIMEOUT_SECONDS` | `10.0` | HTTP read timeout |
+| `API_MAX_RETRIES` | `2` | Retries for transient API errors |
+| `API_BACKOFF_SECONDS` | `0.5` | Retry backoff factor |
+| `EVENT_SEND_WORKERS` | `2` | Maximum concurrent outbound event senders |
+| `QUEUE_MAX_SIZE` | `1000` | Maximum offline queue length; oldest events drop first |
+| `MAX_IMAGE_BYTES` | `750000` | Skip image snapshots larger than this limit |
 | `DEVICE_ID` | `edge-device-01` | Unique device identifier |
 | `CAMERA_ID` | `camera-01` | Camera identifier |
 | `COOLDOWN_SECONDS` | `1.0` | Global cooldown between events |
@@ -261,6 +279,16 @@ tests/
 | `JPEG_QUALITY` | `70` | JPEG compression quality (1-100) |
 | `IMAGE_COOLDOWN_SECONDS` | `5.0` | Per-region cooldown before resending image |
 | `REGION_OVERLAP_THRESHOLD` | `0.5` | IoU threshold for region matching |
+| `REGION_TTL_SECONDS` | `300.0` | Remove stale tracked regions after this many seconds |
+| `REGION_MAX_ENTRIES` | `512` | Maximum tracked regions kept in memory |
+| `LOG_LEVEL` | `INFO` | JSON logger level |
+
+## Security Notes
+
+- Use `https://` API endpoints and set `REQUIRE_HTTPS=True` for production deployments.
+- Keep `API_VERIFY_TLS=True`; disable it only for controlled local testing.
+- Treat `.env`, camera RTSP URLs, and API keys as secrets. Do not commit real credentials.
+- Bound `QUEUE_MAX_SIZE`, `EVENT_SEND_WORKERS`, and `MAX_IMAGE_BYTES` for the target hardware to avoid resource exhaustion during network outages.
 
 ## License
 

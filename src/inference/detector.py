@@ -62,12 +62,14 @@ class Detector:
     self,
     frame: np.ndarray,
     verbose: bool = False,
+    annotate: bool = True,
   ) -> Tuple[np.ndarray, List[Dict]]:
     """Run inference on a single frame.
 
     Args:
       frame: BGR image as numpy array.
       verbose: Print YOLO inference stats.
+      annotate: Draw result overlays. Disable on headless edge devices to save CPU.
 
     Returns:
       Tuple of (annotated frame, list of detection dicts).
@@ -95,4 +97,5 @@ class Detector:
           "name": name,
         })
 
-    return results.plot(), detections
+    output_frame = results.plot() if annotate else frame
+    return output_frame, detections
