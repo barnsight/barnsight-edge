@@ -25,6 +25,22 @@ def select_best_detection(
   return best_detection
 
 
+def select_target_detections(
+  detections: List[Dict],
+  target_name: str,
+  min_confidence: float,
+) -> List[Dict]:
+  """Return all target detections above threshold, highest confidence first."""
+  target_name = target_name.lower()
+  matches = []
+  for detection in detections:
+    name = str(detection.get("name", "")).lower()
+    confidence = float(detection.get("confidence", 0.0))
+    if name == target_name and confidence >= min_confidence:
+      matches.append(detection)
+  return sorted(matches, key=lambda detection: detection["confidence"], reverse=True)
+
+
 def build_event_payload(
   detection: Dict,
   camera_id: str,
@@ -68,3 +84,32 @@ def prepare_detection_event(
   payload = build_event_payload(detection, camera_id, device_id)
   image_bytes = encode_jpeg(frame, jpeg_quality)
   return payload, image_bytes, detection
+
+
+def prepare_detection_events(
+  detections: List[Dict],
+  frame: np.ndarray,
+  target_name: str,
+  min_confidence: float,
+  camera_id: str,
+  device_id: str,
+  jpeg_quality: int,
+) -> Tuple[List[Tuple[Dict, bytes, Dict]], Optional[bytes]]:
+  """Produce one API event per matching target detection."""
+  selected_detections = select_target_detections(
+    detections,
+    target_name,
+    min_confidence,
+  )
+  if not selected_detections:
+    return [], None
+
+  image_bytes = encode_jpeg(frame, jpeg_quality)
+  if not image_bytes:
+    return [], None
+
+  events = [
+    (build_event_payload(detection, camera_id, device_id), image_bytes, detection)
+    for detection in selected_detections
+  ]
+  return events, image_bytes

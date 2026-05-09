@@ -296,6 +296,7 @@ tests/
 | `CAMERA_STALE_SECONDS` | `10.0` | Mark stream stale when no frame arrives in this window |
 | `CAMERA_FROZEN_SECONDS` | `30.0` | Mark stream frozen when frame signature does not change |
 | `INFERENCE_FPS` | `5.0` | Target inference frames per second |
+| `DETECTION_CONFIDENCE` | `0.25` | YOLO candidate threshold before app-level filtering |
 | `HALF_PRECISION` | `False` | Use FP16 (GPU only) |
 | `IMG_SIZE` | `640` | Internal inference resolution |
 | `API_URL` | `http://localhost:8000/api/v1/events` | Central API endpoint |
@@ -316,7 +317,8 @@ tests/
 | `DEVICE_ID` | `edge-device-01` | Unique device identifier |
 | `CAMERA_ID` | `camera-01` | Camera identifier |
 | `COOLDOWN_SECONDS` | `1.0` | Global cooldown between events |
-| `MIN_CONFIDENCE` | `0.5` | Minimum detection confidence threshold |
+| `MIN_CONFIDENCE` | `0.5` | Minimum confidence required before sending an event |
+| `MAX_DETECTIONS_PER_FRAME` | `20` | Maximum manure events created from one frame |
 | `ENABLE_DISPLAY` | `False` | Show OpenCV debug window |
 | `JPEG_QUALITY` | `70` | JPEG compression quality (1-100) |
 | `IMAGE_COOLDOWN_SECONDS` | `5.0` | Per-region cooldown before resending image |

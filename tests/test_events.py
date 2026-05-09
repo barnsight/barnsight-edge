@@ -6,7 +6,9 @@ from src.core.events import (
   build_event_payload,
   encode_jpeg,
   prepare_detection_event,
+  prepare_detection_events,
   select_best_detection,
+  select_target_detections,
 )
 
 
@@ -29,6 +31,22 @@ class TestSelectBestDetection:
     detections = [{"name": "manure", "confidence": 0.4, "bbox": [0, 0, 10, 10]}]
 
     assert select_best_detection(detections, "manure", 0.5) is None
+
+
+class TestSelectTargetDetections:
+  """Tests for selecting every matching target detection."""
+
+  def test_selects_all_matching_targets_by_confidence(self):
+    detections = [
+      {"name": "manure", "confidence": 0.6, "bbox": [0, 0, 10, 10]},
+      {"name": "Manure", "confidence": 0.9, "bbox": [1, 1, 11, 11]},
+      {"name": "cow", "confidence": 0.99, "bbox": [2, 2, 12, 12]},
+      {"name": "manure", "confidence": 0.4, "bbox": [3, 3, 13, 13]},
+    ]
+
+    result = select_target_detections(detections, "manure", 0.5)
+
+    assert [detection["confidence"] for detection in result] == [0.9, 0.6]
 
 
 class TestBuildEventPayload:
@@ -100,3 +118,45 @@ class TestPrepareDetectionEvent:
     assert payload is None
     assert image_bytes is None
     assert detection is None
+
+
+class TestPrepareDetectionEvents:
+  """Tests for preparing one event per matching detection."""
+
+  def test_prepare_detection_events(self):
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+    detections = [
+      {"name": "manure", "confidence": 0.8, "bbox": [1, 2, 11, 12]},
+      {"name": "manure", "confidence": 0.7, "bbox": [3, 4, 13, 14]},
+    ]
+
+    events, image_bytes = prepare_detection_events(
+      detections=detections,
+      frame=frame,
+      target_name="manure",
+      min_confidence=0.5,
+      camera_id="cam-a",
+      device_id="edge-1",
+      jpeg_quality=70,
+    )
+
+    assert len(events) == 2
+    assert image_bytes is not None
+    assert events[0][0]["confidence"] == 0.8
+    assert events[1][0]["confidence"] == 0.7
+
+  def test_prepare_detection_events_without_match(self):
+    frame = np.zeros((32, 32, 3), dtype=np.uint8)
+
+    events, image_bytes = prepare_detection_events(
+      detections=[],
+      frame=frame,
+      target_name="manure",
+      min_confidence=0.5,
+      camera_id="cam-a",
+      device_id="edge-1",
+      jpeg_quality=70,
+    )
+
+    assert events == []
+    assert image_bytes is None

@@ -16,6 +16,10 @@ from ultralytics.engine.results import Results
 from src.core.logger import logger
 
 
+BBOX_COLOR_BGR = (28, 155, 186)
+TEXT_COLOR_BGR = (255, 255, 255)
+
+
 class Detector:
   """YOLO model wrapper for real-time object detection."""
 
@@ -97,5 +101,45 @@ class Detector:
           "name": name,
         })
 
-    output_frame = results.plot() if annotate else frame
+    output_frame = self._annotate_frame(frame, detections) if annotate else frame
     return output_frame, detections
+
+  def _annotate_frame(
+    self,
+    frame: np.ndarray,
+    detections: List[Dict],
+  ) -> np.ndarray:
+    """Draw detection boxes using the BarnSight overlay color."""
+    output_frame = frame.copy()
+    for detection in detections:
+      x1, y1, x2, y2 = [int(value) for value in detection["bbox"]]
+      label = f"{detection['name']} {detection['confidence']:.2f}"
+
+      cv2.rectangle(output_frame, (x1, y1), (x2, y2), BBOX_COLOR_BGR, 2)
+
+      text_size, baseline = cv2.getTextSize(
+        label,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        2,
+      )
+      text_width, text_height = text_size
+      label_y = max(y1, text_height + baseline + 4)
+      cv2.rectangle(
+        output_frame,
+        (x1, label_y - text_height - baseline - 4),
+        (x1 + text_width + 6, label_y),
+        BBOX_COLOR_BGR,
+        -1,
+      )
+      cv2.putText(
+        output_frame,
+        label,
+        (x1 + 3, label_y - baseline - 2),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.6,
+        TEXT_COLOR_BGR,
+        2,
+        cv2.LINE_AA,
+      )
+    return output_frame

@@ -8,7 +8,11 @@ import cv2
 
 from src.client.api_client import APIClient
 from src.config import settings
-from src.core.events import prepare_detection_event
+from src.core.events import (
+  build_event_payload,
+  encode_jpeg,
+  select_target_detections,
+)
 from src.core.logger import logger
 from src.core.region_tracker import RegionTracker
 from src.core.stream_handler import StreamHandler
@@ -54,12 +58,14 @@ class InferenceWorker:
     try:
       detector = Detector(
         model_path=settings.MODEL_PATH,
+        confidence=settings.DETECTION_CONFIDENCE,
         half_precision=settings.HALF_PRECISION,
         img_size=settings.IMG_SIZE,
       )
       logger.info(
         f"[+] Detector loaded from {settings.MODEL_PATH} "
-        f"(imgsz={settings.IMG_SIZE}, fp16={settings.HALF_PRECISION})"
+        f"(conf={settings.DETECTION_CONFIDENCE}, "
+        f"imgsz={settings.IMG_SIZE}, fp16={settings.HALF_PRECISION})"
       )
       return detector
     except Exception as exc:
@@ -166,34 +172,58 @@ class InferenceWorker:
     if not self._can_process_detection(detections, current_time):
       return
 
-    payload, image_bytes, detection = prepare_detection_event(
+    selected_detections = select_target_detections(
       detections=detections,
-      frame=frame,
       target_name="manure",
       min_confidence=settings.MIN_CONFIDENCE,
-      camera_id=settings.CAMERA_ID,
-      device_id=settings.DEVICE_ID,
-      jpeg_quality=settings.JPEG_QUALITY,
     )
-    if not payload or not detection:
+    if not selected_detections:
       return
 
-    bbox = detection["bbox"]
-    if not self.region_tracker or not self.region_tracker.check_and_mark(bbox):
-      logger.debug(
-        f"Skipping duplicate region detection. "
-        f"Confidence: {detection['confidence']:.2f}"
+    if len(selected_detections) > settings.MAX_DETECTIONS_PER_FRAME:
+      logger.warning(
+        f"Limiting frame events from {len(selected_detections)} "
+        f"to {settings.MAX_DETECTIONS_PER_FRAME}"
       )
+      selected_detections = selected_detections[:settings.MAX_DETECTIONS_PER_FRAME]
+
+    image_bytes = None
+    submitted_count = 0
+    for detection in selected_detections:
+      bbox = detection["bbox"]
+      if self.region_tracker and not self.region_tracker.should_send(bbox):
+        logger.debug(
+          f"Skipping duplicate region detection. "
+          f"Confidence: {detection['confidence']:.2f}"
+        )
+        continue
+
+      if image_bytes is None:
+        image_bytes = encode_jpeg(frame, settings.JPEG_QUALITY)
+        if not image_bytes:
+          logger.warning("Skipping detection events because JPEG encoding failed")
+          return
+
+      if self.region_tracker:
+        self.region_tracker.mark_sent(bbox)
+
+      payload = build_event_payload(
+        detection=detection,
+        camera_id=settings.CAMERA_ID,
+        device_id=settings.DEVICE_ID,
+      )
+      if self.api_client:
+        self.api_client.submit_event(payload, image_bytes)
+      submitted_count += 1
+
+    if submitted_count == 0:
       return
 
     self.last_detection_time = current_time
     logger.info(
-      f"Detected event. Confidence: {payload['confidence']:.2f}. "
+      f"Detected {submitted_count} event(s). "
       f"Image size: {len(image_bytes) if image_bytes else 0} bytes"
     )
-
-    if self.api_client:
-      self.api_client.submit_event(payload, image_bytes)
 
   def _can_process_detection(
     self,

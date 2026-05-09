@@ -34,6 +34,7 @@ class Settings(BaseSettings):
 
   # Inference settings
   INFERENCE_FPS: float = 5.0
+  DETECTION_CONFIDENCE: float = 0.25
   HALF_PRECISION: bool = False
   IMG_SIZE: int = 640
 
@@ -57,6 +58,7 @@ class Settings(BaseSettings):
   MAX_IMAGE_BYTES: int = 750_000
   COOLDOWN_SECONDS: float = 1.0
   MIN_CONFIDENCE: float = 0.5
+  MAX_DETECTIONS_PER_FRAME: int = 20
 
   # Display settings
   ENABLE_DISPLAY: bool = False
@@ -94,6 +96,7 @@ class Settings(BaseSettings):
     return value
 
   @field_validator(
+    "DETECTION_CONFIDENCE",
     "MIN_CONFIDENCE",
     "REGION_OVERLAP_THRESHOLD",
   )
@@ -118,6 +121,7 @@ class Settings(BaseSettings):
     "EVENT_SEND_WORKERS",
     "QUEUE_MAX_SIZE",
     "MAX_IMAGE_BYTES",
+    "MAX_DETECTIONS_PER_FRAME",
     "REGION_MAX_ENTRIES",
   )
   @classmethod
