@@ -66,13 +66,14 @@ class APIClient:
   def _warn_if_insecure(self) -> None:
     """Surface insecure deployment configuration without logging secrets."""
     scheme = urlparse(self.api_url).scheme
+    api_key = settings.API_KEY.strip()
     if settings.REQUIRE_HTTPS and scheme != "https":
       raise ValueError("API_URL must use https:// when REQUIRE_HTTPS=True")
     if scheme != "https":
       logger.warning("API_URL is not HTTPS; use TLS outside local development")
-    if not settings.API_KEY:
+    if not api_key:
       logger.warning("API_KEY is empty; API authentication will likely fail")
-    if settings.API_KEY and not settings.API_KEY.startswith("bs_"):
+    if api_key and not api_key.startswith("bs_"):
       logger.warning("API_KEY does not use the expected bs_ prefix")
 
   def start(self) -> None:
@@ -121,14 +122,19 @@ class APIClient:
         )
         return prepared
       b64_str = base64.b64encode(image_bytes).decode("utf-8")
-      prepared["image_snapshot"] = f"data:image/jpeg;base64,{b64_str}"
+      if settings.IMAGE_SNAPSHOT_DATA_URI:
+        prepared["image_snapshot"] = f"data:image/jpeg;base64,{b64_str}"
+      else:
+        prepared["image_snapshot"] = b64_str
+      if prepared.get("snapshot_mode") == "none":
+        prepared["snapshot_mode"] = "full_frame"
     return prepared
 
   def _get_headers(self) -> Dict[str, str]:
     """Return HTTP headers for API requests."""
     return {
       "Content-Type": "application/json",
-      "X-API-Key": settings.API_KEY,
+      "X-API-Key": settings.API_KEY.strip(),
     }
 
   def _post_json(self, url: str, payload: Dict) -> requests.Response:
@@ -149,6 +155,7 @@ class APIClient:
     """Send a detection event to the API. Queues on failure."""
     try:
       prepared = self._prepare_payload(payload, image_bytes)
+      prepared["edge_queue_size"] = self.queue.size()
       prepared = self._normalize_timestamp(prepared)
       response = self._post_json(self.api_url, prepared)
       response.raise_for_status()
@@ -205,6 +212,7 @@ class APIClient:
         if created_at:
           payload["queue_latency_seconds"] = max(0.0, time.time() - created_at)
         prepared = self._prepare_payload(payload, item["image_bytes"])
+        prepared["edge_queue_size"] = self.queue.size()
         prepared = self._normalize_timestamp(prepared)
         response = self._post_json(item["endpoint"], prepared)
         response.raise_for_status()

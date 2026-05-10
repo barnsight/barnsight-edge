@@ -211,6 +211,15 @@ class InferenceWorker:
         detection=detection,
         camera_id=settings.CAMERA_ID,
         device_id=settings.DEVICE_ID,
+        barn_id=settings.BARN_ID,
+        zone_id=settings.ZONE_ID,
+        model_version=settings.MODEL_VERSION,
+        model_path=settings.MODEL_PATH,
+        inference_fps=settings.INFERENCE_FPS,
+        img_size=settings.IMG_SIZE,
+        threshold=settings.MIN_CONFIDENCE,
+        edge_app_version=settings.EDGE_APP_VERSION,
+        snapshot_mode=settings.SNAPSHOT_MODE,
       )
       if self.api_client:
         self.api_client.submit_event(payload, image_bytes)

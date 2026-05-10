@@ -53,12 +53,26 @@ class TestBuildEventPayload:
   """Tests for API payload creation."""
 
   def test_builds_payload_with_bbox_dimensions(self):
-    detection = {"confidence": 0.75, "bbox": [10, 20, 40, 60]}
+    detection = {"name": "manure", "confidence": 0.75, "bbox": [10, 20, 40, 60]}
 
-    payload = build_event_payload(detection, "cam-a", "edge-1")
+    payload = build_event_payload(
+      detection,
+      "cam-a",
+      "edge-1",
+      barn_id="barn-1",
+      zone_id="zone-2",
+      model_version="v1",
+      model_path="models/manure.pt",
+      inference_fps=5.0,
+      img_size=640,
+      threshold=0.5,
+      edge_app_version="0.1.0",
+      snapshot_mode="none",
+    )
 
     assert payload["camera_id"] == "cam-a"
     assert payload["device_id"] == "edge-1"
+    assert payload["detected_class"] == "manure"
     assert payload["confidence"] == 0.75
     assert payload["bounding_box"] == {
       "x": 10,
@@ -66,6 +80,18 @@ class TestBuildEventPayload:
       "width": 30,
       "height": 40,
     }
+    assert payload["barn_id"] == "barn-1"
+    assert payload["zone_id"] == "zone-2"
+    assert payload["model_version"] == "v1"
+    assert payload["model_path"] == "models/manure.pt"
+    assert payload["inference_fps"] == 5.0
+    assert payload["edge_queue_size"] == 0
+    assert payload["img_size"] == 640
+    assert payload["threshold"] == 0.5
+    assert payload["snapshot_mode"] == "none"
+    assert payload["edge_app_version"] == "0.1.0"
+    assert payload["queue_latency_seconds"] == 0.0
+    assert "event_id" in payload
     assert "timestamp" in payload
 
 

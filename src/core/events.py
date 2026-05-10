@@ -1,6 +1,7 @@
 """Event helpers for converting detections into API payloads."""
 
 import datetime
+import uuid
 from typing import Dict, List, Optional, Tuple
 
 import cv2
@@ -45,6 +46,16 @@ def build_event_payload(
   detection: Dict,
   camera_id: str,
   device_id: str,
+  *,
+  barn_id: str = "",
+  zone_id: str = "",
+  model_version: str = "",
+  model_path: str = "",
+  inference_fps: float = 0.0,
+  img_size: int = 0,
+  threshold: float = 0.0,
+  edge_app_version: str = "",
+  snapshot_mode: str = "none",
 ) -> Dict:
   """Build the API event payload for a detection."""
   bbox = detection["bbox"]
@@ -52,6 +63,7 @@ def build_event_payload(
     "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     "camera_id": camera_id,
     "device_id": device_id,
+    "detected_class": str(detection.get("name", "")),
     "confidence": detection["confidence"],
     "bounding_box": {
       "x": bbox[0],
@@ -59,6 +71,18 @@ def build_event_payload(
       "width": bbox[2] - bbox[0],
       "height": bbox[3] - bbox[1],
     },
+    "model_version": model_version,
+    "model_path": model_path,
+    "inference_fps": inference_fps,
+    "edge_queue_size": 0,
+    "img_size": img_size,
+    "threshold": threshold,
+    "event_id": str(uuid.uuid4()),
+    "zone_id": zone_id,
+    "barn_id": barn_id,
+    "snapshot_mode": snapshot_mode,
+    "edge_app_version": edge_app_version,
+    "queue_latency_seconds": 0.0,
   }
 
 

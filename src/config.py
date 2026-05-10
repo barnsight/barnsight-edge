@@ -39,10 +39,12 @@ class Settings(BaseSettings):
   IMG_SIZE: int = 640
 
   # Event & API settings
-  API_URL: str = "http://localhost:8000/api/v1/events"
+  API_URL: str = "http://localhost:8000/api/v1/edge/events"
   API_KEY: str = ""  # Must be set in .env
   DEVICE_ID: str = "edge-device-01"
   CAMERA_ID: str = "camera-01"
+  BARN_ID: str = ""
+  ZONE_ID: str = ""
   API_CONNECT_TIMEOUT_SECONDS: float = 3.0
   API_TIMEOUT_SECONDS: float = 10.0
   API_MAX_RETRIES: int = 2
@@ -59,12 +61,16 @@ class Settings(BaseSettings):
   COOLDOWN_SECONDS: float = 1.0
   MIN_CONFIDENCE: float = 0.5
   MAX_DETECTIONS_PER_FRAME: int = 20
+  SNAPSHOT_MODE: str = "none"
+  EDGE_APP_VERSION: str = "0.1.0"
+  MODEL_VERSION: str = ""
 
   # Display settings
   ENABLE_DISPLAY: bool = False
 
   # Image encoding settings
   JPEG_QUALITY: int = 70
+  IMAGE_SNAPSHOT_DATA_URI: bool = False
 
   # Region-based deduplication settings
   # Cooldown per spatial region before sending another image

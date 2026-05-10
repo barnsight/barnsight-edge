@@ -113,7 +113,7 @@ cp .env.example .env
 
 3. Update `.env` with your specific settings:
    - `STREAM_URL`: Your camera's RTSP feed or `0` for a local webcam.
-   - `API_URL`: The full URL to the central BarnSight API (e.g., `https://api.barnsight.ai/api/v1/events`).
+   - `API_URL`: The full URL to the central BarnSight API (e.g., `https://api.barnsight.ai/api/v1/edge/events`).
    - `API_KEY`: Your generated authentication key (must start with `bs_`).
    - `REQUIRE_HTTPS=True`: Recommended outside local development.
    - *See `.env.example` for all hardware optimization flags.*
@@ -299,8 +299,10 @@ tests/
 | `DETECTION_CONFIDENCE` | `0.25` | YOLO candidate threshold before app-level filtering |
 | `HALF_PRECISION` | `False` | Use FP16 (GPU only) |
 | `IMG_SIZE` | `640` | Internal inference resolution |
-| `API_URL` | `http://localhost:8000/api/v1/events` | Central API endpoint |
+| `API_URL` | `http://localhost:8000/api/v1/edge/events` | Central API endpoint |
 | `API_KEY` | `""` | Authentication key (must start with `bs_`) |
+| `BARN_ID` | `""` | Optional barn identifier attached to each event |
+| `ZONE_ID` | `""` | Optional zone identifier attached to each event |
 | `REQUIRE_HTTPS` | `False` | Reject non-HTTPS API URLs when enabled |
 | `API_VERIFY_TLS` | `True` | Verify TLS certificates for HTTPS API requests |
 | `API_CONNECT_TIMEOUT_SECONDS` | `3.0` | HTTP connection timeout |
@@ -310,6 +312,9 @@ tests/
 | `EVENT_SEND_WORKERS` | `2` | Maximum concurrent outbound event senders |
 | `QUEUE_BACKEND` | `memory` | Offline queue backend: `memory` or `sqlite` |
 | `QUEUE_DB_PATH` | `data/events_queue.sqlite3` | SQLite queue file path when `QUEUE_BACKEND=sqlite` |
+| `SNAPSHOT_MODE` | `none` | Snapshot mode sent in payload; upgraded to `full_frame` when an image is attached |
+| `EDGE_APP_VERSION` | `0.1.0` | Edge application version included in events |
+| `MODEL_VERSION` | `""` | Optional model version identifier included in events |
 | `QUEUE_MAX_RETRY_COUNT` | `0` | Maximum queue retries; `0` means unlimited |
 | `QUEUE_STORE_IMAGES` | `False` | Store image bytes in SQLite queue. Keep disabled by default |
 | `QUEUE_MAX_SIZE` | `1000` | Maximum offline queue length; oldest events drop first |
